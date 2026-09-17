@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neon Grid Defender</title>
+    <style>
+        body {
+            background-color: #05050a;
+            color: #ffffff;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            font-family: 'Courier New', Courier, monospace;
+            overflow: hidden;
+        }
+        #game-container {
+            position: relative;
+        }
+        canvas {
+            background: radial-gradient(circle at center, #111 0%, #000 100%);
+            box-shadow: 0 0 20px rgba(0, 255, 255, 0.4);
+            border: 2px solid #00ffff;
+            border-radius: 8px;
+        }
+        #ui {
+            position: absolute;
+            top: 15px;
+            left: 15px;
+            font-size: 18px;
+            text-shadow: 0 0 8px #00ffff;
+            pointer-events: none;
+        }
+        #game-over {
+            display: none;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            background: rgba(10, 10, 20, 0.9);
+            padding: 30px;
+            border: 2px solid #ff00ff;
+            box-shadow: 0 0 20px rgba(255, 0, 255, 0.5);
+            border-radius: 10px;
+        }
+        h2 {
+            margin: 0 0 10px 0;
+            color: #ff00ff;
+            text-shadow: 0 0 10px #ff00ff;
+        }
+        button {
+            margin-top: 15px;
+            padding: 10px 20px;
+            background: transparent;
+            color: #00ffff;
+            border: 2px solid #00ffff;
+            font-family: inherit;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            text-shadow: 0 0 5px #00ffff;
+            box-shadow: 0 0 10px rgba(0, 255, 255, 0.3);
+            transition: all 0.2s ease-in-out;
+        }
+        button:hover {
+            background: #00ffff;
+            color: #000;
+            box-shadow: 0 0 20px #00ffff;
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <div id="ui">Score: <span id="score">0</span></div>
+    <canvas id="gameCanvas" width="400" height="600"></canvas>
+    <div id="game-over">
+        <h2>GAME OVER</h2>
+        <p>Final Score: <span id="final-score">0</span></p>
+        <button onclick="resetGame()">PLAY AGAIN</button>
+    </div>
+</div>
+
+<script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const scoreElement = document.getElementById('score');
+    const gameOverScreen = document.getElementById('game-over');
+    const finalScoreElement = document.getElementById('final-score');
+
+    let animationId;
+    let score = 0;
+    let isGameOver = false;
+
+    // Game Entities
+    const player = {
+        x: canvas.width / 2 - 15,
+        y: canvas.height - 50,
+        width: 30,
+        height: 30,
+        speed: 5,
+        dx: 0,
+        color: '#00ffff'
+    };
+
+    let bullets = [];
+    let enemies = [];
+    let particles = [];
+
+    // Controls
+    const keys = {
+        ArrowLeft: false,
+        ArrowRight: false,
+        a: false,
+        d: false,
+        Space: false
+    };
+
+    let lastShot = 0;
+    const fireRate = 200; // milliseconds
+
+    window.addEventListener('keydown', (e) => {
+        if (keys.hasOwnProperty(e.key)) keys[e.key] = true;
+        if (e.code === 'Space') keys.Space = true;
+    });
+
+    window.addEventListener('keyup', (e) => {
+        if (keys.hasOwnProperty(e.key)) keys[e.key] = false;
+        if (e.code === 'Space') keys.Space = false;
+    });
+
+    function drawNeonRect(x, y, w, h, color, blurObj = true) {
+        if (blurObj) {
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = color;
+        } else {
+            ctx.shadowBlur = 0;
+        }
+        ctx.fillStyle = color;
+        ctx.fillRect(x, y, w, h);
+        ctx.shadowBlur = 0; // Reset
+    }
+
+    function spawnEnemy() {
+        if (Math.random() < 0.03 + (score * 0.0001)) {
+            const size = Math.random() * 20 + 15;
+            enemies.push({
+                x: Math.random() * (canvas.width - size),
+                y: -size,
+                width: size,
+                height: size,
+                speed: Math.random() * 2 + 1.5 + (score * 0.005),
+                color: '#ff00ff'
+            });
+        }
+    }
+
+    function createExplosion(x, y, color) {
+        for (let i = 0; i < 15; i++) {
+            particles.push({
+                x: x,
+                y: y,
+                vx: (Math.random() - 0.5) * 6,
+                vy: (Math.random() - 0.5) * 6,
+                life: 1,
+                color: color
+            });
+        }
+    }
+
+    function update() {
+        if (isGameOver) return;
+
+        // Player Movement
+        if ((keys.ArrowLeft || keys.a) && player.x > 0) player.x -= player.speed;
+        if ((keys.ArrowRight || keys.d) && player.x < canvas.width - player.width) player.x += player.speed;
+
+        // Shooting
+        const now = Date.now();
+        if (keys.Space && now - lastShot > fireRate) {
+            bullets.push({
+                x: player.x + player.width / 2 - 2,
+                y: player.y,
+                width: 4,
+                height: 15,
+                speed: 8,
+                color: '#00ffff'
+            });
+            lastShot = now;
+        }
+
+        // Bullets
+        bullets.forEach((b, index) => {
+            b.y -= b.speed;
+            if (b.y + b.height < 0) bullets.splice(index, 1);
+        });
+
+        // Enemies
+        spawnEnemy();
+        enemies.forEach((enemy, eIndex) => {
+            enemy.y += enemy.speed;
+
+            // Collision: Bullet hits Enemy
+            bullets.forEach((bullet, bIndex) => {
+                if (
+                    bullet.x < enemy.x + enemy.width &&
+                    bullet.x + bullet.width > enemy.x &&
+                    bullet.y < enemy.y + enemy.height &&
+                    bullet.y + bullet.height > enemy.y
+                ) {
+                    createExplosion(enemy.x + enemy.width/2, enemy.y + enemy.height/2, enemy.color);
+                    enemies.splice(eIndex, 1);
+                    bullets.splice(bIndex, 1);
+                    score += 10;
+                    scoreElement.innerText = score;
+                }
+            });
+
+            // Collision: Enemy hits Player
+            if (
+                player.x < enemy.x + enemy.width &&
+                player.x + player.width > enemy.x &&
+                player.y < enemy.y + enemy.height &&
+                player.y + player.height > enemy.y
+            ) {
+                endGame();
+            }
+
+            // Enemy goes off screen
+            if (enemy.y > canvas.height) {
+                enemies.splice(eIndex, 1);
+                score = Math.max(0, score - 5); // Penalty for missing
+                scoreElement.innerText = score;
+            }
+        });
+
+        // Particles
+        particles.forEach((p, index) => {
+            p.x += p.vx;
+            p.y += p.vy;
+            p.life -= 0.05;
+            if (p.life <= 0) particles.splice(index, 1);
+        });
+    }
+
+    function draw() {
+        // Clear background with slight fade for motion blur effect
+        ctx.fillStyle = 'rgba(5, 5, 10, 0.4)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // Draw Player
+        drawNeonRect(player.x, player.y, player.width, player.height, player.color);
+        // Player cockpit detail
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(player.x + 10, player.y + 5, 10, 10);
+
+        // Draw Bullets
+        bullets.forEach(b => drawNeonRect(b.x, b.y, b.width, b.height, b.color, false));
+
+        // Draw Enemies
+        enemies.forEach(e => drawNeonRect(e.x, e.y, e.width, e.height, e.color));
+
+        // Draw Particles
+        particles.forEach(p => {
+            ctx.globalAlpha = Math.max(0, p.life);
+            drawNeonRect(p.x, p.y, 3, 3, p.color, false);
+            ctx.globalAlpha = 1;
+        });
+    }
+
+    function loop() {
+        update();
+        draw();
+        if (!isGameOver) {
+            animationId = requestAnimationFrame(loop);
+        }
+    }
+
+    function endGame() {
+        isGameOver = true;
+        createExplosion(player.x + player.width/2, player.y + player.height/2, player.color);
+        draw(); // draw the player explosion
+        gameOverScreen.style.display = 'block';
+        finalScoreElement.innerText = score;
+    }
+
+    function resetGame() {
+        score = 0;
+        scoreElement.innerText = score;
+        isGameOver = false;
+        enemies = [];
+        bullets = [];
+        particles = [];
+        player.x = canvas.width / 2 - 15;
+        gameOverScreen.style.display = 'none';
+        loop();
+    }
+
+    // Start Game
+    loop();
+</script>
+</body>
+</html>
